@@ -1,0 +1,5 @@
+torch 
+transformers
+uvicorn[standard]
+fastapi
+python-multipart
