@@ -7,9 +7,13 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 from typing import Optional
 import enum
+from ramda import *
+from pathlib import Path
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, PlainTextResponse
+import json
+from typing import List
 
 # CONFIG
-
 TASK = 'translation'
 CKPT = 'facebook/nllb-200-distilled-600M'
 
@@ -22,13 +26,29 @@ Languages = enum.Enum('languages', languages)
 
 if __name__ == "__main__":
     uvicorn.run("server:app", reload=True)
-else:
+elif __name__ == 'server':
     print('loading model')
     device = 0 if torch.cuda.is_available() else -1
+    device = -1
     model = AutoModelForSeq2SeqLM.from_pretrained(CKPT)
     tokenizer = AutoTokenizer.from_pretrained(CKPT)
 
-app = FastAPI()
+app = FastAPI(
+    docs_url='/',
+    redoc_url=None,
+)
+
+cache = Path('cache')
+cache.mkdir(exist_ok=True, parents=True)
+
+def load_json(f):
+    try:
+        return json.loads(Path(f).read_text())
+    except FileNotFoundError:
+        return {}
+
+def save_json(d, f):
+    Path(f).write_text(json.dumps(d))
 
 def translate(text, to, original):
     translation_pipeline = pipeline(TASK, model=model, tokenizer=tokenizer, src_lang=original, tgt_lang=to, max_length=MAX_LEN, device=device)
@@ -43,11 +63,30 @@ def translate_text(
     original: Languages = Form("eng_Latn"),
     to: Languages = Form("ukr_Cyrl"),
 ):
+    f = f'cache/{text}'
+    cache = load_json(f)
+    if prop(to.value,cache):
+        return cache[to.value]
+
     translation = translate(text, to.value, original.value)
     print({"to": to, "original": original, "text": text, "translation": translation})
     return translation
 
-@app.get("/", response_class=RedirectResponse)
-async def redirect_to_docs():
-    return "/docs"
+@app.post("/translate/text2all", response_class=PlainTextResponse)
+def translate_text_to_all(
+    text: str = Form("Glory to Ukraine! Glory to heroes!"),
+    original: Languages = Form("eng_Latn"),
+    to: List[Languages] = [],
+):
+    f = f'cache/{text}'
+    cache = load_json(f)
+    for l in to:
+        l = l.value
+        if prop(l, cache):
+            continue
 
+        translation = translate(text, l, original.value)
+        cache[l] = translation
+        save_json(cache, f)
+
+    return JSONResponse(cache)
