@@ -62,7 +62,7 @@ def translate_text(
     original: Languages = Form("eng_Latn"),
     to: Languages = Form("ukr_Cyrl"),
 ):
-    f = f'cache/{text}'
+    f = f'cache/{text.replace("/","_")}'
     cache = load_json(f)
     if prop(to.value,cache):
         return cache[to.value]
@@ -73,27 +73,28 @@ def translate_text(
 
 from pydantic import BaseModel, Field
 class T(BaseModel):
-    text: str = Form("Glory to Ukraine! Glory to heroes!")
+    text: str = Form("download")
     original: str = Form("eng_Latn")
-    to: List[Languages] = Form([Languages.eng_Latn])
+    to: List[Languages] = Form([Languages.eng_Latn, Languages.rus_Cyrl, Languages.azj_Latn])
 
-@app.post("/translate/text2all", response_class=JSONResponse)
+@app.post("/translate/text2all")
 def translate_text_to_all(t: T):
-
-    to = uniq(append(Languages.eng_Latn, t.to))
-    f = f'cache/{t.text}'
+    t.text = to_lower(t.text)
+    to = uniq(t.to)
+    f = f'cache/{t.text.replace("/", "_")}'
     cache = load_json(f)
     for l in to:
         l = l.value
         if prop(l, cache):
             continue
 
-        translation = translate(t.text, l, t.original)
+        translation = to_lower(translate(t.text, l, t.original))
         cache[l] = translation
         save_json(cache, f)
 
-    return cache
+    print(t.text, cache)
+    return JSONResponse(cache)
 
 @app.get('/translate/cache')
 def get_all_cache():
-    return index_by(prop("eng_Latn"),  map(load_json, Path('cache').glob('*')))
+    return from_pairs(map(lambda x: [replace('cache/', '', str(x)), load_json(x)], Path('cache').glob('*')))
